@@ -1,2 +1,2 @@
 # LED bar peripheral source code
-Source code (except `main.c`) that is specific to the LED bar peripheral goes here.
+All source code (header files and source files) expect `main.c` that is specific to the I2C LED bar goes in this folder.
