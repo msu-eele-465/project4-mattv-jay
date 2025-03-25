@@ -15,6 +15,8 @@ uint8_t pattern = 0b00000000;
 bool unlocked = false;
 char key = '\0';
 
+// unsigned int time_since_active = 
+
 /**
  * Initializes all GPIO ports.
  */
@@ -42,11 +44,14 @@ void initGPIO(void)
  */
 void initTimer(void)
 {
-    TB0CTL = TBSSEL__SMCLK | MC_1 | TBCLR | ID__8; // SMCLK, up mode, clear TBR, divide by 8
-    TB0EX0 = TBIDEX__8; // Divide by 8 again
-    TB0CCR0 = 15624; // Set up 1.0s period
+    TB0CTL = TBSSEL__ACLK | MC_1 | TBCLR | ID__2; // ACLK, up mode, clear TBR, divide by 2
+    TB0CCR0 = 16384; // Set up 1.0s period
     TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
     TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
+
+    // TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR; // SMCLK, continuous mode, clear TBR, divide by 2
+    // TB1CTL &= ~TBIFG; // Clear CCR0 Flag
+    // TB1CCTL0 |= TBIE; // Enable TB0 CCR0 Overflow IRQ
 }
 
 /**
@@ -70,7 +75,7 @@ void initI2C(void)
  */
 int main(void)
 {
-    int trans_period = 15625 - 1;
+    int trans_period = 16384;
     const float PER_FRACTIONS[] = { 1.0, 1.0, 0.5, 0.5, 0.25, 1.5, 0.5, 1.0 };
 
     uint8_t pattern_store[] = { { 0b10101010 }, { 0b10101010 }, { 0b00000000 }, { 0b00011000 },
@@ -94,15 +99,15 @@ int main(void)
         {
             if (key == 'A')
             {
-                if (trans_period != 3906)
+                if (trans_period != 4096)
                 {
-                    trans_period -= 3906;
+                    trans_period -= 4096;
                     key = '\0';
                 }
             }
             else if (key == 'B')
             {
-                trans_period += 3906;
+                trans_period += 4096;
                 key = '\0';
             }
             else if ((key - '0') >= 0 && (key - '0') < 8)
@@ -191,6 +196,21 @@ __interrupt void ISR_TB0_CCR0(void)
     P2OUT = (P2OUT & 0b00111111) | (pattern & 0b11000000);
 
     TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
+}
+
+/**
+ * Timer B0 Compare Interrupt.
+ *
+ * Runs periodically according to the transistion
+ * period ("trans_period") and the corresponding
+ * patterns fractional period. Updates LED bar
+ * display pattern based on currently selected 
+ * pattern.
+ */
+#pragma vector = TIMER1_B0_VECTOR
+__interrupt void Timer1_B0_ISR(void)
+{
+
 }
 
 /**
