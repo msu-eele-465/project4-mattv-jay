@@ -15,13 +15,16 @@ uint8_t pattern = 0b00000000;
 bool unlocked = false;
 char key = '\0';
 
-void init(void)
+/**
+ * Initializes all GPIO ports.
+ */
+void initGPIO(void)
 {
     // Set ports 1.0, 1.1, 1.4-1.7, 2.0, 2.6, 2.7 as outputs
     P1DIR |= BIT0 | BIT1 | BIT4 | BIT5 | BIT6 | BIT7;
     P2DIR |= BIT0 | BIT6 | BIT7;
 
-    // Set outputs to zero
+    // Set GPIO outputs to zero
     P1OUT &= ~(BIT0 | BIT1 | BIT4 | BIT5 | BIT6 | BIT7);
     P2OUT &= ~(BIT0 | BIT6 | BIT7);
 
@@ -32,21 +35,39 @@ void init(void)
     // Disable the GPIO power-on default high-impedance mdoe to activate
     // previously configure port settings
     PM5CTL0 &= ~LOCKLPM5;
+}
 
-    TB0CTL = TBSSEL__SMCLK | MC_1 | TBCLR | ID__8; // SMCLK, up mode, clear TBR
-    TB0EX0 = TBIDEX__8;
+/**
+ * Initializes all timers.
+ */
+void initTimer(void)
+{
+    TB0CTL = TBSSEL__SMCLK | MC_1 | TBCLR | ID__8; // SMCLK, up mode, clear TBR, divide by 8
+    TB0EX0 = TBIDEX__8; // Divide by 8 again
     TB0CCR0 = 15624; // Set up 1.0s period
     TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
     TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
+}
 
+/**
+ * Sets all I2C parameters.
+ */
+void initI2C(void)
+{
     UCB0CTLW0 = UCSWRST; // Software reset enabled
     UCB0CTLW0 |= UCMODE_3 | UCSYNC; // I2C mode, sync mode
     UCB0I2COA0 = I2C_ADDR | UCOAEN; // Own Address and enable
     UCB0CTLW0 &= ~UCSWRST; // clear reset register
-    UCB0IE |= UCRXIE;
-    __enable_interrupt(); // Enable Maskable IRQs
+    UCB0IE |= UCRXIE; // Enable I2C read interrupt
 }
 
+
+/**
+ * Main function.
+ *
+ * A longer description, with more discussion of the function 
+ * that might be useful to those using or modifying it. 
+ */
 int main(void)
 {
     int trans_period = 15625 - 1;
@@ -61,7 +82,11 @@ int main(void)
     WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
 
     // Initialize ports and other subsystems
-    init();
+    initGPIO();
+    initTimer();
+    initI2C();
+
+    __enable_interrupt(); // Enable Maskable IRQs
 
     while (true)
     {
@@ -103,6 +128,15 @@ int main(void)
     }
 }
 
+/**
+ * Timer B0 Compare Interrupt.
+ *
+ * Runs periodically according to the transistion
+ * period ("trans_period") and the corresponding
+ * patterns fractional period. Updates LED bar
+ * display pattern based on currently selected 
+ * pattern.
+ */
 #pragma vector = TIMER0_B0_VECTOR
 __interrupt void ISR_TB0_CCR0(void)
 {
@@ -159,6 +193,12 @@ __interrupt void ISR_TB0_CCR0(void)
     TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
 }
 
+/**
+ * I2C RX Interrupt.
+ *
+ * Stores value received over I2C in global var "key".
+ * If 'U' is received over I2C, set the "unlocked" var.
+ */
 #pragma vector = EUSCI_B0_VECTOR
 __interrupt void EUSCI_B0_I2C_ISR(void)
 {
