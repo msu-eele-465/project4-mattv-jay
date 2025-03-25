@@ -7,7 +7,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define SLAVE_ADDR  0x48
+#define I2C_ADDR  0x48
 
 // unsigned int pattern_num = 0;
 // uint8_t pattern = 0b00000000;
@@ -68,7 +68,7 @@ int main(void)
 
     UCB0CTLW0 = UCSWRST;                      // Software reset enabled
     UCB0CTLW0 |= UCMODE_3 | UCSYNC;           // I2C mode, sync mode
-    UCB0I2COA0 = SLAVE_ADDR | UCOAEN;         // Own Address and enable
+    UCB0I2COA0 = I2C_ADDR | UCOAEN;         // Own Address and enable
     UCB0CTLW0 &= ~UCSWRST;                    // clear reset register
     UCB0IE |= UCRXIE + UCSTPIE;
 	__enable_interrupt();   // Enable Maskable IRQs
