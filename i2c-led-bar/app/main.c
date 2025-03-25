@@ -9,13 +9,13 @@
 
 #define I2C_ADDR 0x48
 
-unsigned int pattern_num = 0;
-uint8_t pattern = 0b00000000;
+unsigned int pattern_num = 0; // Tracks which pattern is active
+uint8_t pattern = 0b00000000; // For manipulating active pattern
 
 bool unlocked = false;
 char key = '\0';
 
-unsigned int time_since_active = 2;
+unsigned int time_since_active = 3;
 
 /**
  * Initializes all GPIO ports.
@@ -119,7 +119,10 @@ int main(void)
                 }
                 else
                 {
-                    pattern_store[pattern_num] = pattern;
+                    if (pattern_num != 0 && pattern != 0b00000000) // Handles initial condition
+                    {
+                        pattern_store[pattern_num] = pattern;
+                    }
                     pattern = pattern_store[(unsigned int)(key - '0')];
                     pattern_num = (unsigned int)(key - '0');
                 }
