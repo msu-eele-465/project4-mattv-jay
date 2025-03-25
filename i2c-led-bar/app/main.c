@@ -49,7 +49,7 @@ void initTimer(void)
     TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
     TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
 
-    TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR | ID__8 | CNTL_1; // ACLK, continuous mode, clear TBR, divide by 2, length
+    TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR | ID__8 | CNTL_1; // ACLK, continuous mode, clear TBR, divide by 8, length
                                                            // 12-bit
     TB1CTL &= ~TBIFG; // Clear CCR0 Flag
     TB1CTL |= TBIE; // Enable TB1 Overflow IRQ
