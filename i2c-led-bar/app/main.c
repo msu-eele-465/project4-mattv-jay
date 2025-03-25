@@ -145,6 +145,7 @@ int main(void)
  * display pattern based on currently selected
  * pattern.
  */
+bool dir_out = false;
 #pragma vector = TIMER0_B0_VECTOR
 __interrupt void ISR_TB0_CCR0(void)
 {
@@ -157,7 +158,18 @@ __interrupt void ISR_TB0_CCR0(void)
             pattern++;
             break;
         case 3:
-            // pulse LED bar in and out;
+            if (pattern == 0b00011000 || pattern == 0b10000001)
+            {
+                dir_out = !dir_out;
+            }
+            if (dir_out)
+            {
+                pattern = ((pattern & 0b11110000) << 1) | ((pattern & 0b00001111) >> 1);
+            }
+            else
+            {
+                pattern = ((pattern & 0b11110000) >> 1) | ((pattern & 0b00001111) << 1);
+            }
             break;
         case 4:
             pattern--;
