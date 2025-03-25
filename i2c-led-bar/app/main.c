@@ -49,10 +49,10 @@ void initTimer(void)
     TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
     TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
 
-    TB1CTL = TBSSEL__ACLK | MC_1 | TBCLR | ID__2; // ACLK, up mode, clear TBR, divide by 2
-    TB1CCR0 = 16384; // Set up 1.0s period
-    TB1CCTL0 &= ~CCIFG; // Clear CCR0 Flag
-    TB1CCTL0 |= CCIE; // Enable TB1 CCR0 Overflow IRQ
+    TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR | ID__8 | CNTL_1; // ACLK, continuous mode, clear TBR, divide by 2, length
+                                                           // 12-bit
+    TB1CTL &= ~TBIFG; // Clear CCR0 Flag
+    TB1CTL |= TBIE; // Enable TB1 Overflow IRQ
 }
 
 /**
@@ -67,12 +67,11 @@ void initI2C(void)
     UCB0IE |= UCRXIE; // Enable I2C read interrupt
 }
 
-
 /**
  * Main function.
  *
- * A longer description, with more discussion of the function 
- * that might be useful to those using or modifying it. 
+ * A longer description, with more discussion of the function
+ * that might be useful to those using or modifying it.
  */
 int main(void)
 {
@@ -143,7 +142,7 @@ int main(void)
  * Runs periodically according to the transistion
  * period ("trans_period") and the corresponding
  * patterns fractional period. Updates LED bar
- * display pattern based on currently selected 
+ * display pattern based on currently selected
  * pattern.
  */
 #pragma vector = TIMER0_B0_VECTOR
@@ -203,21 +202,21 @@ __interrupt void ISR_TB0_CCR0(void)
 }
 
 /**
- * Timer B1 Compare Interrupt.
+ * Timer B1 Overflow Interrupt.
  *
- * Runs every second. Starts flashing status LED 
+ * Runs every second. Starts flashing status LED
  * 3 seconds after receiving something over I2C.
  */
-#pragma vector = TIMER1_B0_VECTOR
-__interrupt void ISR_TB1_CCR0(void)
+#pragma vector = TIMER1_B1_VECTOR
+__interrupt void ISR_TB1_OVERFLOW(void)
 {
-    if(time_since_active >= 3)
+    if (time_since_active >= 3)
     {
         P2OUT ^= BIT0;
     }
     time_since_active++;
 
-    TB1CCTL0 &= ~CCIFG; // Clear CCR0 Flag
+    TB1CTL &= ~TBIFG; // Clear CCR0 Flag
 }
 
 /**
