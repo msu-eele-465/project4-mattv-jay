@@ -15,7 +15,7 @@ uint8_t pattern = 0b00000000;
 bool unlocked = false;
 char key = '\0';
 
-// unsigned int time_since_active = 
+unsigned int time_since_active = 2;
 
 /**
  * Initializes all GPIO ports.
@@ -49,9 +49,10 @@ void initTimer(void)
     TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
     TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
 
-    // TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR; // SMCLK, continuous mode, clear TBR, divide by 2
-    // TB1CTL &= ~TBIFG; // Clear CCR0 Flag
-    // TB1CCTL0 |= TBIE; // Enable TB0 CCR0 Overflow IRQ
+    TB1CTL = TBSSEL__ACLK | MC_1 | TBCLR | ID__2; // ACLK, up mode, clear TBR, divide by 2
+    TB1CCR0 = 16384; // Set up 1.0s period
+    TB1CCTL0 &= ~CCIFG; // Clear CCR0 Flag
+    TB1CCTL0 |= CCIE; // Enable TB1 CCR0 Overflow IRQ
 }
 
 /**
@@ -199,18 +200,21 @@ __interrupt void ISR_TB0_CCR0(void)
 }
 
 /**
- * Timer B0 Compare Interrupt.
+ * Timer B1 Compare Interrupt.
  *
- * Runs periodically according to the transistion
- * period ("trans_period") and the corresponding
- * patterns fractional period. Updates LED bar
- * display pattern based on currently selected 
- * pattern.
+ * Runs every second. Starts flashing status LED 
+ * 3 seconds after receiving something over I2C.
  */
 #pragma vector = TIMER1_B0_VECTOR
-__interrupt void Timer1_B0_ISR(void)
+__interrupt void ISR_TB1_CCR0(void)
 {
+    if(time_since_active >= 3)
+    {
+        P2OUT ^= BIT0;
+    }
+    time_since_active++;
 
+    TB1CCTL0 &= ~CCIFG; // Clear CCR0 Flag
 }
 
 /**
@@ -227,4 +231,6 @@ __interrupt void EUSCI_B0_I2C_ISR(void)
     {
         unlocked = true;
     }
+    P2OUT |= BIT0;
+    time_since_active = 0;
 }
