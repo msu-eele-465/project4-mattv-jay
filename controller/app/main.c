@@ -125,11 +125,7 @@ uint8_t keypad_get_key(void) {
         {'7', '8', '9', 'C'},
         {'*', '0', '#', 'D'}
     };
-<<<<<<< HEAD
     return 0;
-=======
-    return keys[3 - __builtin_ctz(row)][col];
->>>>>>> 3e5db9f (Update main.c)
 }
 void handle_keypress(uint8_t key) {
     if (!unlocked) {
