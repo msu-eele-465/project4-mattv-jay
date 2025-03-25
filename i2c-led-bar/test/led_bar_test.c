@@ -48,7 +48,7 @@ int main(void)
     // Stop watchdog timer
     WDTCTL = WDTPW | WDTHOLD;               // Stop watchdog timer
 
-    // Set ports 1.0, 1.1, 1.4-1.7, 2.0, 2.6, 2.7 as led bar outputs
+    // Set ports 1.0, 1.1, 1.4-1.7, 2.0, 2.6, 2.7 as outputs
     P1DIR |= BIT0 | BIT1 | BIT4 | BIT5 | BIT6 | BIT7;
     P2DIR |= BIT0 | BIT6 | BIT7;
 
