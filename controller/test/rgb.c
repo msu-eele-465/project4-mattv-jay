@@ -11,7 +11,7 @@
 
 unsigned int to_ccr(unsigned int color_val);
 
-int state = 0;
+int state = 2;
 
 int main(void)
 {
@@ -45,14 +45,14 @@ int main(void)
             case 0:
                 // red
                 rgb_value[0] = 196;
-                rgb_value[1] = 62;
-                rgb_value[2] = 29;
+                rgb_value[1] = 16;
+                rgb_value[2] = 5;
                 break;
             case 1:
                 // orange
                 rgb_value[0] = 196;
-                rgb_value[1] = 146;
-                rgb_value[2] = 29;
+                rgb_value[1] = 96;
+                rgb_value[2] = 5;
                 break;
             case 2:
                 // blue
@@ -75,7 +75,8 @@ int main(void)
     }
 }
 
+
 unsigned int to_ccr(unsigned int color_val)
 {
-    return color_val * (PERIOD/255.0);  // TB3CCR0/255 = 999/255 = 3.91765
+    return color_val * (float)(PERIOD)/255.0;  // TB3CCR0/255 = 999/255 = 3.91765;
 }
