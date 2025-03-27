@@ -3,7 +3,7 @@
  * @brief Test file to run all rgb related code.
  */
 
-#include <msp430.h>
+#include <msp430fr2355.h>
 #include <stdint.h>
 #include <stdbool.h>
 
