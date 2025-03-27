@@ -5,7 +5,6 @@
 
 #include "intrinsics.h"
 #include <msp430fr2310.h>
-#include <stdint.h>
 #include <stdbool.h>
 
 #define RS_HIGH P2OUT |= BIT6
@@ -33,7 +32,7 @@ void init_lcd(void)
     // Function set
     LCD_DATA |= DB5;
     enable_lcd();
-    send_cmd(0x2C);
+    send_cmd(0x28);
     __delay_cycles(100); // Wait 100 micro seconds
     // Display on
     send_cmd(0x0C);
