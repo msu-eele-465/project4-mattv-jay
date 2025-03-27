@@ -2,12 +2,23 @@
  * @file main.c
  * @brief Main file to run all code.
  */
-
+#include "intrinsics.h"
 #include <msp430fr2310.h>
 #include <stdint.h>
 #include <stdbool.h>
 
 #define I2C_ADDR 0x49
+
+#define RS_HIGH P2OUT |= BIT6
+#define RS_LOW P2OUT &= ~BIT6
+#define E_HIGH P2OUT |= BIT7
+#define E_LOW P2OUT &= ~BIT7
+
+#define LCD_DATA P1OUT
+#define DB4 BIT4
+#define DB5 BIT5
+#define DB6 BIT6
+#define DB7 BIT7
 
 unsigned int pattern_num = 0; // Tracks which pattern is active
 
@@ -16,10 +27,15 @@ char key = '\0';
 
 unsigned int time_since_active = 3;
 
+void enable_lcd(void);
+void send_cmd(unsigned char cmd);
+void send_char(unsigned char character);
+void send_string(const char *str);
+
 /**
  * Initializes all GPIO ports.
  */
-void initGPIO(void)
+void init_gpio(void)
 {
     // Set ports 1.4-1.7, 2.0, 2.6, 2.7 as outputs
     P1DIR |= BIT4 | BIT5 | BIT6 | BIT7;
@@ -41,12 +57,12 @@ void initGPIO(void)
 /**
  * Initializes all timers.
  */
-void initTimer(void)
+void init_timer(void)
 {
-    TB0CTL = TBSSEL__ACLK | MC_1 | TBCLR | ID__2; // ACLK, up mode, clear TBR, divide by 2
-    TB0CCR0 = 16384; // Set up 1.0s period
-    TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
-    TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
+    // TB0CTL = TBSSEL__ACLK | MC_1 | TBCLR | ID__2; // ACLK, up mode, clear TBR, divide by 2
+    // TB0CCR0 = 16384; // Set up 1.0s period
+    // TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
+    // TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
 
     TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR | ID__8 | CNTL_1; // ACLK, continuous mode, clear TBR, divide by 8, length
                                                            // 12-bit
@@ -57,13 +73,35 @@ void initTimer(void)
 /**
  * Sets all I2C parameters.
  */
-void initI2C(void)
+void init_i2c(void)
 {
     UCB0CTLW0 = UCSWRST; // Software reset enabled
     UCB0CTLW0 |= UCMODE_3 | UCSYNC; // I2C mode, sync mode
     UCB0I2COA0 = I2C_ADDR | UCOAEN; // Own Address and enable
     UCB0CTLW0 &= ~UCSWRST; // clear reset register
     UCB0IE |= UCRXIE; // Enable I2C read interrupt
+}
+
+void init_lcd(void)
+{
+    __delay_cycles(30000); // Wait 30 ms
+    LCD_DATA |= DB5;
+    enable_lcd();
+    send_cmd(0x2C);
+    // LCD_DATA |= DB5;
+    // LCD_DATA |= DB7 | DB6;
+    __delay_cycles(100); // Wait 100 micro seconds
+    send_cmd(0x0C);
+    // LCD_DATA &= ~(DB7 | DB6 | DB5 | DB4);
+    // LCD_DATA |= (DB7 | DB6);
+    __delay_cycles(100); // Wait 100 micro seconds
+    send_cmd(0x01);
+    // LCD_DATA &= ~(DB7 | DB6 | DB5 | DB4);
+    // LCD_DATA |= DB4;
+    __delay_cycles(1600); // Wait 1.6 ms
+    send_cmd(0x06);
+    // LCD_DATA &= ~(DB7 | DB6 | DB5 | DB4);
+    // LCD_DATA |= (DB6 | DB5);
 }
 
 /**
@@ -80,9 +118,15 @@ int main(void)
     WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
 
     // Initialize ports and other subsystems
-    initGPIO();
-    initTimer();
-    initI2C();
+    init_gpio();
+    init_timer();
+    init_i2c();
+    
+    init_lcd();
+    // send_cmd(0x01);
+    __delay_cycles(10000);
+    send_char('0');
+    send_string(PATTERNS[0]);
 
     __enable_interrupt(); // Enable Maskable IRQs
 
@@ -100,19 +144,39 @@ int main(void)
     }
 }
 
-/**
- * Timer B0 Compare Interrupt.
- *
- * Runs periodically according to the transistion
- * period ("trans_period") and the corresponding
- * patterns fractional period. Updates LED bar
- * display pattern based on currently selected
- * pattern.
- */
-#pragma vector = TIMER0_B0_VECTOR
-__interrupt void ISR_TB0_CCR0(void)
+void enable_lcd(void)
 {
-    TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
+    E_HIGH;
+    // __delay_cycles(450);
+    E_LOW;
+    // __delay_cycles(1000);
+}
+
+void send_cmd(unsigned char cmd)
+{
+    RS_LOW;
+    LCD_DATA = (LCD_DATA & 0x0F) | (cmd & 0xF0);
+    enable_lcd();
+    LCD_DATA = (LCD_DATA & 0x0F) | ((cmd & 0x0F) << 4);
+    enable_lcd();
+}
+
+void send_char(unsigned char character)
+{
+    RS_HIGH;
+    LCD_DATA = (LCD_DATA & 0x0F) | (character & 0xF0);
+    enable_lcd();
+    LCD_DATA = (LCD_DATA & 0x0F) | ((character & 0x0F) << 4);
+    enable_lcd();
+}
+
+void send_string(const char *str)
+{
+    unsigned int i;
+    for (i = 0; str[i] != 0; i++)
+    {
+        send_char(str[i]);
+    }
 }
 
 /**
