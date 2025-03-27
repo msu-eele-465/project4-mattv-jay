@@ -1,3 +1,4 @@
+#include "msp430fr2355.h"
 #include <msp430.h>
 #include <stdint.h>
 
@@ -6,8 +7,8 @@
 #define SCL_PIN BIT3
 
 // I2C Addresses
-#define LED_PERIPHERAL_ADDR 0x20
-#define LCD_PERIPHERAL_ADDR 0x21
+#define LED_PERIPHERAL_ADDR 0x48
+#define LCD_PERIPHERAL_ADDR 0x49
 
 // LCD Commands
 #define LCD_CLEAR 0x01
@@ -33,11 +34,7 @@ volatile uint8_t i2c_rx_data = 0;
 
 void i2c_init(void);
 void i2c_write_byte_interrupt(uint8_t addr, uint8_t byte);
-void lcd_init(void);
-void lcd_command(uint8_t cmd);
-void lcd_write_char(uint8_t data);
-void lcd_set_cursor(uint8_t row, uint8_t col);
-void lcd_clear(void);
+void lcd_write(uint8_t byte);
 void keypad_init(void);
 uint8_t keypad_get_key(void);
 void rgb_init(void);
@@ -51,7 +48,6 @@ int main(void)
     WDTCTL = WDTPW | WDTHOLD; // Stop watchdog
 
     i2c_init(); // Initialize I2C with int
-    lcd_init(); // Initialize LCD
     keypad_init(); // Initialize Keypad
     rgb_init();
 
@@ -67,9 +63,6 @@ int main(void)
     TB3CCTL3 = OUTMOD_7;                    // CCR3 reset/set
     TB3CCR3 = 0;                           // CCR3 PWM duty cycle
     TB3CTL = TBSSEL__SMCLK | MC_1 | TBCLR;  // SMCLK, up mode, clear TBR
-
-    lcd_clear(); // Start cleared LCD
-    lcd_command(LCD_CURSOR_OFF); // Cursor is off
 
     uint8_t rgb_value[] = {196, 62, 29};
 
@@ -130,9 +123,10 @@ unsigned int to_ccr(unsigned int color_val)
 
 void i2c_init(void)
 {
+    P1SEL1 &= ~(SDA_PIN | SCL_PIN);
     P1SEL0 |= SDA_PIN | SCL_PIN; // Set SDA and SCL pins
     UCB0CTLW0 = UCSWRST; // Put eUSCI_B0 in reset mode
-    UCB0CTLW0 |= UCMODE_3 | UCMST | UCSYNC; // I2C master mode
+    UCB0CTLW0 |= UCMODE_3 | UCMST | UCSSEL_3 | UCTR; // I2C master mode
     UCB0BRW = 10; // Set I2C clock prescaler
     UCB0CTLW0 &= ~UCSWRST; // Release eUSCI_B0 from reset
 
@@ -144,14 +138,14 @@ void i2c_write_byte_interrupt(uint8_t addr, uint8_t byte)
 {
     i2c_tx_data[0] = addr;
     i2c_tx_data[1] = byte;
-    i2c_tx_index = 0;
+    i2c_tx_index = 1;
 
     UCB0I2CSA = addr; // Set I2C slave address
-    UCB0CTLW0 |= UCTR | UCTXSTT; // Set to transmit mode and send start condition
+    UCB0CTLW0 |= UCTXSTT; // Set to transmit mode and send start condition
 }
 
 #pragma vector = EUSCI_B0_VECTOR
-__interrupt void EUSCI_B0_ISR(void)
+__interrupt void EUSCI_B0_I2C_ISR(void)
 {
     switch (__even_in_range(UCB0IV, USCI_I2C_UCBIT9IFG))
     {
@@ -178,32 +172,9 @@ __interrupt void EUSCI_B0_ISR(void)
     }
 }
 
-void lcd_init(void)
+void lcd_write(uint8_t byte)
 {
-    lcd_command(0x38); // Function set: 2-line disp, 5x8 font
-    lcd_command(0x0C); // Display on, cursor off
-    lcd_command(0x01); // Clear display
-}
-
-void lcd_command(uint8_t cmd)
-{
-    i2c_write_byte_interrupt(LCD_PERIPHERAL_ADDR, cmd); // Use interrupt-based I2C
-}
-
-void lcd_write_char(uint8_t data)
-{
-    i2c_write_byte_interrupt(LCD_PERIPHERAL_ADDR, data); // Use interrupt-based I2C
-}
-
-void lcd_set_cursor(uint8_t row, uint8_t col)
-{
-    uint8_t pos = (row == 0) ? col : 0x40 + col; // Calculate DDRAM address
-    lcd_command(0x80 | pos); // Set DDRAM address with command 0x80
-}
-
-void lcd_clear(void)
-{
-    lcd_command(LCD_CLEAR); // Clear the LCD screen
+    i2c_write_byte_interrupt(LCD_PERIPHERAL_ADDR, byte); // Use interrupt-based I2C
 }
 
 void keypad_init(void)
@@ -255,8 +226,8 @@ void handle_keypress(uint8_t key)
             if (code_index >= 4)
             {
                 unlocked = 2;
-                lcd_command(LCD_CURSOR_ON);
-                lcd_clear();
+                lcd_write('U');
+                send_to_led('U');
                 code_index = 0;
             }
         }
@@ -266,16 +237,13 @@ void handle_keypress(uint8_t key)
             unlocked = 0;
         }
     }
-    else
+    else if (key != '\0')
     {
-        update_lcd_display(key);
+        send_to_led(key);
+        lcd_write(key);
     }
 }
-void update_lcd_display(uint8_t key)
-{
-    lcd_set_cursor(0, 0);
-    lcd_write_char(key);
-}
+
 void send_to_led(uint8_t pattern)
 {
     i2c_write_byte_interrupt(LED_PERIPHERAL_ADDR, pattern);
