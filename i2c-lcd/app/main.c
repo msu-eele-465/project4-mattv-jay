@@ -1,84 +1,180 @@
-/* --COPYRIGHT--,BSD_EX
- * Copyright (c) 2014, Texas Instruments Incorporated
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * *  Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * *  Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * *  Neither the name of Texas Instruments Incorporated nor the names of
- *    its contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- *******************************************************************************
- *
- *                       MSP430 CODE EXAMPLE DISCLAIMER
- *
- * MSP430 code examples are self-contained low-level programs that typically
- * demonstrate a single peripheral function or device feature in a highly
- * concise manner. For this the code may rely on the device's power-on default
- * register values and settings such as the clock configuration and care must
- * be taken when combining code from several examples to avoid potential side
- * effects. Also see www.ti.com/grace for a GUI- and www.ti.com/msp430ware
- * for an API functional library-approach to peripheral configuration.
- *
- * --/COPYRIGHT--*/
-//******************************************************************************
-//  MSP430FR231x Demo - Toggle P1.0 using software
-//
-//  Description: Toggle P1.0 every 0.1s using software.
-//  By default, FR231x select XT1 as FLL reference.
-//  If XT1 is present, the PxSEL(XIN & XOUT) needs to configure.
-//  If XT1 is absent, switch to select REFO as FLL reference automatically.
-//  XT1 is considered to be absent in this example.
-//  ACLK = default REFO ~32768Hz, MCLK = SMCLK = default DCODIV ~1MHz.
-//
-//           MSP430FR231x
-//         ---------------
-//     /|\|               |
-//      | |               |
-//      --|RST            |
-//        |           P1.0|-->LED
-//
-//   Darren Lu
-//   Texas Instruments Inc.
-//   July 2015
-//   Built with IAR Embedded Workbench v6.30 & Code Composer Studio v6.1 
-//******************************************************************************
-#include <msp430.h>
+/**
+ * @file main.c
+ * @brief Main file to run all code.
+ */
+/**
+ * @file i2c_lcd.c
+ * @brief Test file to test i2c functionality with LCD display.
+ */
+#include <msp430fr2310.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include "intrinsics.h"
+#include "src/lcd_driver.h"
 
+#define I2C_ADDR 0x49
+
+#define RS_HIGH P2OUT |= BIT6
+#define RS_LOW P2OUT &= ~BIT6
+#define E_HIGH P2OUT |= BIT7
+#define E_LOW P2OUT &= ~BIT7
+
+#define LCD_DATA P1OUT
+#define DB4 BIT4
+#define DB5 BIT5
+#define DB6 BIT6
+#define DB7 BIT7
+
+bool unlocked = false;
+char key = '0';
+
+unsigned int time_since_active = 3;
+
+void enable_lcd(void);
+void send_cmd(unsigned char cmd);
+void send_char(unsigned char character);
+void send_string(const char *str);
+
+/**
+ * Initializes all GPIO ports.
+ */
+void init_gpio(void)
+{
+    // Set ports 1.4-1.7, 2.0, 2.6, 2.7 as outputs
+    P1DIR |= BIT4 | BIT5 | BIT6 | BIT7;
+    P2DIR |= BIT0 | BIT6 | BIT7;
+
+    // Set GPIO outputs to zero
+    P1OUT &= ~(BIT4 | BIT5 | BIT6 | BIT7);
+    P2OUT &= ~(BIT0 | BIT6 | BIT7);
+
+    // I2C pins
+    P1SEL0 |= BIT2 | BIT3;
+    P1SEL1 &= ~(BIT2 | BIT3);
+
+    // Disable the GPIO power-on default high-impedance mdoe to activate
+    // previously configure port settings
+    PM5CTL0 &= ~LOCKLPM5;
+}
+
+/**
+ * Initializes all timers.
+ */
+void init_timer(void)
+{
+    TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR | ID__8 | CNTL_1; // ACLK, continuous mode, clear TBR, divide by 8, length
+                                                           // 12-bit
+    TB1CTL &= ~TBIFG; // Clear CCR0 Flag
+    TB1CTL |= TBIE; // Enable TB1 Overflow IRQ
+}
+
+/**
+ * Sets all I2C parameters.
+ */
+void init_i2c(void)
+{
+    UCB0CTLW0 = UCSWRST; // Software reset enabled
+    UCB0CTLW0 |= UCMODE_3 | UCSYNC; // I2C mode, sync mode
+    UCB0I2COA0 = I2C_ADDR | UCOAEN; // Own Address and enable
+    UCB0CTLW0 &= ~UCSWRST; // clear reset register
+    UCB0IE |= UCRXIE; // Enable I2C read interrupt
+}
+
+/**
+ * Main function.
+ *
+ * Starts by initializing subsystems and ports. Handles
+ * I2C data after being received and outputs to LCD display.
+ */
 int main(void)
 {
-    WDTCTL = WDTPW | WDTHOLD;               // Stop watchdog timer
+    uint8_t cursor = 0b00001100;
 
-    P1OUT &= ~BIT0;                         // Clear P1.0 output latch for a defined power-on state
-    P1DIR |= BIT0;                          // Set P1.0 to output direction
+    const char *PATTERNS[] = { "static",       "toggle",        "up counter",     "in and out",
+                               "down counter", "rotate 1 left", "rotate 7 right", "fill left" };
 
-    PM5CTL0 &= ~LOCKLPM5;                   // Disable the GPIO power-on default high-impedance mode
-                                            // to activate previously configured port settings
+    WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
 
-    while(1)
+    // Initialize ports and other subsystems
+    init_gpio();
+    init_timer();
+    init_i2c();
+
+    init_lcd();
+    send_cmd(0x01);
+    __delay_cycles(10000);
+
+    __enable_interrupt(); // Enable Maskable IRQs
+
+    while (true)
     {
-        P1OUT ^= BIT0;                      // Toggle P1.0 using exclusive-OR
-        __delay_cycles(100000);             // Delay for 100000*(1/MCLK)=0.1s
+        if (unlocked && key != '\0')
+        {
+            if (key == '9')
+            {
+                cursor ^= BIT1;
+                send_cmd(cursor);
+                __delay_cycles(100); // Wait 100 micro seconds
+            } 
+            else if (key == 'C') 
+            {
+                cursor ^= BIT0;
+                send_cmd(cursor);
+                __delay_cycles(100); // Wait 100 micro seconds
+            }
+            else if ((key - '0') >= 0 && (key - '0') < 8)
+            {
+                __disable_interrupt();
+                send_cmd(0x01);
+                __delay_cycles(10000); // Wait 1.6 ms
+                send_string(PATTERNS[(unsigned int)(key - '0')]);
+                __enable_interrupt();
+            }
+            send_cmd(0xCF);
+            send_char(key);
+            send_cmd(0xCF);
+            key = '\0';
+        }
     }
+}
+
+/**
+ * Timer B1 Overflow Interrupt.
+ *
+ * Runs every second. Starts flashing status LED
+ * 3 seconds after receiving something over I2C.
+ */
+#pragma vector = TIMER1_B1_VECTOR
+__interrupt void ISR_TB1_OVERFLOW(void)
+{
+    if (time_since_active >= 3)
+    {
+        P2OUT ^= BIT0;
+    }
+    time_since_active++;
+
+    TB1CTL &= ~TBIFG; // Clear CCR0 Flag
+}
+
+/**
+ * I2C RX Interrupt.
+ *
+ * Stores value received over I2C in global var "key".
+ * If 'U' is received over I2C, set the "unlocked" var.
+ */
+char data_in;
+#pragma vector = EUSCI_B0_VECTOR
+__interrupt void EUSCI_B0_I2C_ISR(void)
+{
+    data_in = UCB0RXBUF;
+    if (data_in == 'U')
+    {
+        unlocked = true;
+    }
+    else
+    {
+        key = data_in;
+    }
+    P2OUT |= BIT0;
+    time_since_active = 0;
 }

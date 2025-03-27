@@ -1,84 +1,250 @@
-/* --COPYRIGHT--,BSD_EX
- * Copyright (c) 2014, Texas Instruments Incorporated
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * *  Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * *  Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * *  Neither the name of Texas Instruments Incorporated nor the names of
- *    its contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- *******************************************************************************
- *
- *                       MSP430 CODE EXAMPLE DISCLAIMER
- *
- * MSP430 code examples are self-contained low-level programs that typically
- * demonstrate a single peripheral function or device feature in a highly
- * concise manner. For this the code may rely on the device's power-on default
- * register values and settings such as the clock configuration and care must
- * be taken when combining code from several examples to avoid potential side
- * effects. Also see www.ti.com/grace for a GUI- and www.ti.com/msp430ware
- * for an API functional library-approach to peripheral configuration.
- *
- * --/COPYRIGHT--*/
-//******************************************************************************
-//  MSP430FR231x Demo - Toggle P1.0 using software
-//
-//  Description: Toggle P1.0 every 0.1s using software.
-//  By default, FR231x select XT1 as FLL reference.
-//  If XT1 is present, the PxSEL(XIN & XOUT) needs to configure.
-//  If XT1 is absent, switch to select REFO as FLL reference automatically.
-//  XT1 is considered to be absent in this example.
-//  ACLK = default REFO ~32768Hz, MCLK = SMCLK = default DCODIV ~1MHz.
-//
-//           MSP430FR231x
-//         ---------------
-//     /|\|               |
-//      | |               |
-//      --|RST            |
-//        |           P1.0|-->LED
-//
-//   Darren Lu
-//   Texas Instruments Inc.
-//   July 2015
-//   Built with IAR Embedded Workbench v6.30 & Code Composer Studio v6.1 
-//******************************************************************************
-#include <msp430.h>
+/**
+ * @file main.c
+ * @brief Main file to run all code.
+ */
 
+#include <msp430fr2310.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+#define I2C_ADDR 0x48
+
+unsigned int pattern_num = 0; // Tracks which pattern is active
+uint8_t pattern = 0b00000000; // For manipulating active pattern
+
+bool unlocked = false;
+char key = '\0';
+
+unsigned int time_since_active = 3;
+
+/**
+ * Initializes all GPIO ports.
+ */
+void initGPIO(void)
+{
+    // Set ports 1.0, 1.1, 1.4-1.7, 2.0, 2.6, 2.7 as outputs
+    P1DIR |= BIT0 | BIT1 | BIT4 | BIT5 | BIT6 | BIT7;
+    P2DIR |= BIT0 | BIT6 | BIT7;
+
+    // Set GPIO outputs to zero
+    P1OUT &= ~(BIT0 | BIT1 | BIT4 | BIT5 | BIT6 | BIT7);
+    P2OUT &= ~(BIT0 | BIT6 | BIT7);
+
+    // I2C pins
+    P1SEL0 |= BIT2 | BIT3;
+    P1SEL1 &= ~(BIT2 | BIT3);
+
+    // Disable the GPIO power-on default high-impedance mdoe to activate
+    // previously configure port settings
+    PM5CTL0 &= ~LOCKLPM5;
+}
+
+/**
+ * Initializes all timers.
+ */
+void initTimer(void)
+{
+    TB0CTL = TBSSEL__ACLK | MC_1 | TBCLR | ID__2; // ACLK, up mode, clear TBR, divide by 2
+    TB0CCR0 = 16384; // Set up 1.0s period
+    TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
+    TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
+
+    TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR | ID__8 | CNTL_1; // ACLK, continuous mode, clear TBR, divide by 8, length
+                                                           // 12-bit
+    TB1CTL &= ~TBIFG; // Clear CCR0 Flag
+    TB1CTL |= TBIE; // Enable TB1 Overflow IRQ
+}
+
+/**
+ * Sets all I2C parameters.
+ */
+void initI2C(void)
+{
+    UCB0CTLW0 = UCSWRST; // Software reset enabled
+    UCB0CTLW0 |= UCMODE_3 | UCSYNC; // I2C mode, sync mode
+    UCB0I2COA0 = I2C_ADDR | UCOAEN; // Own Address and enable
+    UCB0CTLW0 &= ~UCSWRST; // clear reset register
+    UCB0IE |= UCRXIE; // Enable I2C read interrupt
+}
+
+/**
+ * Main function.
+ *
+ * A longer description, with more discussion of the function
+ * that might be useful to those using or modifying it.
+ */
 int main(void)
 {
-    WDTCTL = WDTPW | WDTHOLD;               // Stop watchdog timer
+    int trans_period = 16384;
+    const float PER_FRACTIONS[] = { 1.0, 1.0, 0.5, 0.5, 0.25, 1.5, 0.5, 1.0 };
 
-    P1OUT &= ~BIT0;                         // Clear P1.0 output latch for a defined power-on state
-    P1DIR |= BIT0;                          // Set P1.0 to output direction
+    uint8_t pattern_store[] = { { 0b10101010 }, { 0b10101010 }, { 0b00000000 }, { 0b00011000 },
+                                { 0b11111111 }, { 0b00000001 }, { 0b01111111 }, { 0b00000000 } };
 
-    PM5CTL0 &= ~LOCKLPM5;                   // Disable the GPIO power-on default high-impedance mode
-                                            // to activate previously configured port settings
+    const uint8_t PATTERNS[] = { { 0b10101010 }, { 0b10101010 }, { 0b00000000 }, { 0b00011000 },
+                                 { 0b11111111 }, { 0b00000001 }, { 0b01111111 }, { 0b00000000 } };
 
-    while(1)
+    WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
+
+    // Initialize ports and other subsystems
+    initGPIO();
+    initTimer();
+    initI2C();
+
+    __enable_interrupt(); // Enable Maskable IRQs
+
+    while (true)
     {
-        P1OUT ^= BIT0;                      // Toggle P1.0 using exclusive-OR
-        __delay_cycles(100000);             // Delay for 100000*(1/MCLK)=0.1s
+        if (unlocked)
+        {
+            if (key == 'A')
+            {
+                if (trans_period != 4096)
+                {
+                    trans_period -= 4096;
+                    key = '\0';
+                }
+            }
+            else if (key == 'B')
+            {
+                trans_period += 4096;
+                key = '\0';
+            }
+            else if ((key - '0') >= 0 && (key - '0') < 8)
+            {
+                if (pattern_num == key - '0')
+                {
+                    pattern = PATTERNS[(unsigned int)(key - '0')];
+                }
+                else
+                {
+                    if (pattern_num != 0 && pattern != 0b00000000) // Handles initial condition
+                    {
+                        pattern_store[pattern_num] = pattern;
+                    }
+                    pattern = pattern_store[(unsigned int)(key - '0')];
+                    pattern_num = (unsigned int)(key - '0');
+                }
+                // Set LED bar outputs
+                P1OUT = (P1OUT & 0b11111100) | (pattern & 0b00000011);
+                P1OUT = (P1OUT & 0b00001111) | ((pattern & 0b00111100) << 2);
+                P2OUT = (P2OUT & 0b00111111) | (pattern & 0b11000000);
+                key = '\0';
+            }
+            TB0CCR0 = (unsigned int)(trans_period * PER_FRACTIONS[pattern_num]);
+        }
     }
+}
+
+/**
+ * Timer B0 Compare Interrupt.
+ *
+ * Runs periodically according to the transistion
+ * period ("trans_period") and the corresponding
+ * patterns fractional period. Updates LED bar
+ * display pattern based on currently selected
+ * pattern.
+ */
+bool dir_out = false;
+#pragma vector = TIMER0_B0_VECTOR
+__interrupt void ISR_TB0_CCR0(void)
+{
+    switch (pattern_num)
+    {
+        case 1:
+            pattern = ~pattern;
+            break;
+        case 2:
+            pattern++;
+            break;
+        case 3:
+            if (pattern == 0b00011000 || pattern == 0b10000001)
+            {
+                dir_out = !dir_out;
+            }
+            if (dir_out)
+            {
+                pattern = ((pattern & 0b11110000) << 1) | ((pattern & 0b00001111) >> 1);
+            }
+            else
+            {
+                pattern = ((pattern & 0b11110000) >> 1) | ((pattern & 0b00001111) << 1);
+            }
+            break;
+        case 4:
+            pattern--;
+            break;
+        case 5:
+            if (pattern == 0b10000000)
+            {
+                pattern ^= 0b10000001;
+            }
+            else
+            {
+                pattern = pattern << 1;
+            }
+            break;
+        case 6:
+            if (pattern == 0b11111110)
+            {
+                pattern = 0b01111111;
+            }
+            else
+            {
+                pattern = pattern >> 1;
+                pattern ^= 0b10000000;
+            }
+            break;
+        case 7:
+            if (pattern == 0b11111111)
+            {
+                pattern = ~pattern;
+            }
+            pattern = pattern << 1;
+            pattern ^= 0b00000001;
+            break;
+    }
+
+    // Set LED bar outputs
+    P1OUT = (P1OUT & 0b11111100) | (pattern & 0b00000011);
+    P1OUT = (P1OUT & 0b00001111) | ((pattern & 0b00111100) << 2);
+    P2OUT = (P2OUT & 0b00111111) | (pattern & 0b11000000);
+
+    TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
+}
+
+/**
+ * Timer B1 Overflow Interrupt.
+ *
+ * Runs every second. Starts flashing status LED
+ * 3 seconds after receiving something over I2C.
+ */
+#pragma vector = TIMER1_B1_VECTOR
+__interrupt void ISR_TB1_OVERFLOW(void)
+{
+    if (time_since_active >= 3)
+    {
+        P2OUT ^= BIT0;
+    }
+    time_since_active++;
+
+    TB1CTL &= ~TBIFG; // Clear CCR0 Flag
+}
+
+/**
+ * I2C RX Interrupt.
+ *
+ * Stores value received over I2C in global var "key".
+ * If 'U' is received over I2C, set the "unlocked" var.
+ */
+#pragma vector = EUSCI_B0_VECTOR
+__interrupt void EUSCI_B0_I2C_ISR(void)
+{
+    key = UCB0RXBUF;
+    if (key == 'U')
+    {
+        unlocked = true;
+    }
+    P2OUT |= BIT0;
+    time_since_active = 0;
 }
