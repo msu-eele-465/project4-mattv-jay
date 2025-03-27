@@ -2,11 +2,15 @@
  * @file main.c
  * @brief Main file to run all code.
  */
-#include "intrinsics.h"
-#include "src/lcd_driver.h"
+/**
+ * @file i2c_lcd.c
+ * @brief Test file to test i2c functionality with LCD display.
+ */
 #include <msp430fr2310.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "intrinsics.h"
+#include "src/lcd_driver.h"
 
 #define I2C_ADDR 0x49
 
@@ -24,7 +28,7 @@
 unsigned int pattern_num = 0; // Tracks which pattern is active
 
 bool unlocked = false;
-char key = '\0';
+char key = '0';
 
 unsigned int time_since_active = 3;
 
@@ -60,11 +64,6 @@ void init_gpio(void)
  */
 void init_timer(void)
 {
-    // TB0CTL = TBSSEL__ACLK | MC_1 | TBCLR | ID__2; // ACLK, up mode, clear TBR, divide by 2
-    // TB0CCR0 = 16384; // Set up 1.0s period
-    // TB0CCTL0 &= ~CCIFG; // Clear CCR0 Flag
-    // TB0CCTL0 |= CCIE; // Enable TB0 CCR0 Overflow IRQ
-
     TB1CTL = TBSSEL__ACLK | MC_2 | TBCLR | ID__8 | CNTL_1; // ACLK, continuous mode, clear TBR, divide by 8, length
                                                            // 12-bit
     TB1CTL &= ~TBIFG; // Clear CCR0 Flag
@@ -86,13 +85,15 @@ void init_i2c(void)
 /**
  * Main function.
  *
- * A longer description, with more discussion of the function
- * that might be useful to those using or modifying it.
+ * Starts by initializing subsystems and ports. Handles
+ * I2C data after being received and outputs to LCD display.
  */
 int main(void)
 {
+    uint8_t cursor = 0b00001100;
+
     const char *PATTERNS[] = { "static",       "toggle",        "up counter",     "in and out",
-                                "down counter", "rotate 1 left", "rotate 7 right", "fill left" };
+                               "down counter", "rotate 1 left", "rotate 7 right", "fill left" };
 
     WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
 
@@ -100,25 +101,41 @@ int main(void)
     init_gpio();
     init_timer();
     init_i2c();
-    
+
     init_lcd();
-    // send_cmd(0x01);
+    send_cmd(0x01);
     __delay_cycles(10000);
-    send_char('0');
-    send_string(PATTERNS[0]);
 
     __enable_interrupt(); // Enable Maskable IRQs
 
     while (true)
     {
-        if (unlocked)
+        if (unlocked && key != '\0')
         {
-            if ((key - '0') >= 0 && (key - '0') < 8)
+            if (key == '9')
             {
-                pattern_num = key - '0';
-                // output PATTERNS[pattern_num] to LCD;
-                key = '\0';
+                cursor ^= BIT1;
+                send_cmd(cursor);
+                __delay_cycles(100); // Wait 100 micro seconds
+            } 
+            else if (key == 'C') 
+            {
+                cursor ^= BIT0;
+                send_cmd(cursor);
+                __delay_cycles(100); // Wait 100 micro seconds
             }
+            else if ((key - '0') >= 0 && (key - '0') < 8)
+            {
+                __disable_interrupt();
+                send_cmd(0x01);
+                __delay_cycles(10000); // Wait 1.6 ms
+                send_string(PATTERNS[(unsigned int)(key - '0')]);
+                __enable_interrupt();
+            }
+            send_cmd(0xCF);
+            send_char(key);
+            send_cmd(0xCF);
+            key = '\0';
         }
     }
 }
@@ -147,13 +164,18 @@ __interrupt void ISR_TB1_OVERFLOW(void)
  * Stores value received over I2C in global var "key".
  * If 'U' is received over I2C, set the "unlocked" var.
  */
+char data_in;
 #pragma vector = EUSCI_B0_VECTOR
 __interrupt void EUSCI_B0_I2C_ISR(void)
 {
-    key = UCB0RXBUF;
-    if (key == 'U')
+    data_in = UCB0RXBUF;
+    if (data_in == 'U')
     {
         unlocked = true;
+    }
+    else
+    {
+        key = data_in;
     }
     P2OUT |= BIT0;
     time_since_active = 0;
