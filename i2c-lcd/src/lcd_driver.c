@@ -1,6 +1,6 @@
 /**
  * @file lcd_driver.c
- * @brief Test file to develop code for writing to LCD.
+ * @brief Contains code required to use LCD display with MSP430.
  */
 
 #include "intrinsics.h"
@@ -24,6 +24,9 @@ void send_cmd(unsigned char cmd);
 void send_char(unsigned char character);
 void send_string(const char *str);
 
+/**
+ * Initializes LCD display.
+ */
 void init_lcd(void)
 {
     __delay_cycles(30000); // Wait 30 ms
@@ -42,12 +45,18 @@ void init_lcd(void)
     send_cmd(0x06);
 }
 
+/**
+ * Toggle LCD enable bit.
+ */
 void enable_lcd(void)
 {
     E_HIGH;
     E_LOW;
 }
 
+/**
+ * Send an instruction to LCD.
+ */
 void send_cmd(unsigned char cmd)
 {
     RS_LOW;
@@ -57,6 +66,9 @@ void send_cmd(unsigned char cmd)
     enable_lcd();
 }
 
+/**
+ * Send a character to LCD.
+ */
 void send_char(unsigned char character)
 {
     RS_HIGH;
@@ -66,6 +78,9 @@ void send_char(unsigned char character)
     enable_lcd();
 }
 
+/**
+ * Send a string to LCD.
+ */
 void send_string(const char *str)
 {
     unsigned int i;
