@@ -3,6 +3,7 @@
  * @brief Main file to run all code.
  */
 #include "intrinsics.h"
+#include "src/lcd_driver.h"
 #include <msp430fr2310.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -82,28 +83,6 @@ void init_i2c(void)
     UCB0IE |= UCRXIE; // Enable I2C read interrupt
 }
 
-void init_lcd(void)
-{
-    __delay_cycles(30000); // Wait 30 ms
-    LCD_DATA |= DB5;
-    enable_lcd();
-    send_cmd(0x2C);
-    // LCD_DATA |= DB5;
-    // LCD_DATA |= DB7 | DB6;
-    __delay_cycles(100); // Wait 100 micro seconds
-    send_cmd(0x0C);
-    // LCD_DATA &= ~(DB7 | DB6 | DB5 | DB4);
-    // LCD_DATA |= (DB7 | DB6);
-    __delay_cycles(100); // Wait 100 micro seconds
-    send_cmd(0x01);
-    // LCD_DATA &= ~(DB7 | DB6 | DB5 | DB4);
-    // LCD_DATA |= DB4;
-    __delay_cycles(1600); // Wait 1.6 ms
-    send_cmd(0x06);
-    // LCD_DATA &= ~(DB7 | DB6 | DB5 | DB4);
-    // LCD_DATA |= (DB6 | DB5);
-}
-
 /**
  * Main function.
  *
@@ -141,41 +120,6 @@ int main(void)
                 key = '\0';
             }
         }
-    }
-}
-
-void enable_lcd(void)
-{
-    E_HIGH;
-    // __delay_cycles(450);
-    E_LOW;
-    // __delay_cycles(1000);
-}
-
-void send_cmd(unsigned char cmd)
-{
-    RS_LOW;
-    LCD_DATA = (LCD_DATA & 0x0F) | (cmd & 0xF0);
-    enable_lcd();
-    LCD_DATA = (LCD_DATA & 0x0F) | ((cmd & 0x0F) << 4);
-    enable_lcd();
-}
-
-void send_char(unsigned char character)
-{
-    RS_HIGH;
-    LCD_DATA = (LCD_DATA & 0x0F) | (character & 0xF0);
-    enable_lcd();
-    LCD_DATA = (LCD_DATA & 0x0F) | ((character & 0x0F) << 4);
-    enable_lcd();
-}
-
-void send_string(const char *str)
-{
-    unsigned int i;
-    for (i = 0; str[i] != 0; i++)
-    {
-        send_char(str[i]);
     }
 }
 
