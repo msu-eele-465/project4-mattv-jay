@@ -25,8 +25,6 @@
 #define DB6 BIT6
 #define DB7 BIT7
 
-unsigned int pattern_num = 0; // Tracks which pattern is active
-
 bool unlocked = false;
 char key = '0';
 
